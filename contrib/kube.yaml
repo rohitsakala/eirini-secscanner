@@ -1,0 +1,88 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eirini-secscanner
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: eirini-secscanner
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - ingresses
+  - services
+  verbs:
+  - get
+  - list
+  - delete
+  - create
+  - update
+  - patch
+- apiGroups:
+  - "extensions"
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - delete
+  - create
+  - update
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: watch-eirini-1
+  namespace: eirini
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-secscanner
+subjects:
+- kind: ServiceAccount
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: eirini-secscanner
+  template:
+    metadata:
+      labels:
+        name: eirini-secscanner
+    spec:
+      serviceAccountName: eirini-secscanner
+      containers:
+        - name: eirini-secscanner
+          imagePullPolicy: Always
+          image: "quay.io/mudler/eirinix-ingress"
+          env:
+            - name: NAMESPACE
+              value: "eirini"
+            - name: LABELS
+              value: '{ "eirinix-ingress": "true" }'
