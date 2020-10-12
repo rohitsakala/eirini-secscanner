@@ -32,11 +32,20 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		}
 	}
 
+	var image string
+	for i := range podCopy.Spec.Containers {
+		c := &podCopy.Spec.Containers[i]
+		switch c.Name {
+		case "opi":
+			image = c.Image
+		}
+	}
+
 	secscanner := v1.Container{
 		Name:            "secscanner",
-		Image:           "alpine",
-		Args:            []string{"loggregator"},
-		Command:         []string{},
+		Image:           image,
+		Args:            []string{"mkdir bin && curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b bin && bin/trivy filesystem --exit-code 1 --no-progress /"},
+		Command:         []string{"/bin/sh", "-c"},
 		ImagePullPolicy: v1.PullAlways,
 		Env:             []v1.EnvVar{},
 	}
