@@ -47,7 +47,7 @@ func main() {
 		zaplog.Fatal("the SERVICE_NAME environment variable must be set")
 	}
 
-	filter := false
+	filter := true
 
 	ext := eirinix.NewManager(eirinix.ManagerOptions{
 		Namespace:           eiriniNsEnvVar,
