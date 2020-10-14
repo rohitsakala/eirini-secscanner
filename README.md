@@ -21,13 +21,16 @@ This lab is targeted towards the audience who would like to use Cloud Foundry fo
 - A machine with golang installed, were we will build our extension
 - A KubeCF Cluster deployed with Eirini
 - Students must have basic knowledge of Cloud Foundry and Kubernetes.
+- Github account / Git experience
 
 
 ## 1) Setup your go environment
 
 Be sure you have an environment where you can build golang source code, see [here for golang installation](https://golang.org/doc/install), and check that your environment can compile the [go hello world program](https://golang.org/doc/tutorial/getting-started). Note the tutorial needs an environment with `Go >=1.14`.
 
-## 2) Setup go.mod for our project
+## 2) Preparation
+
+### 2.1) Setup go.mod for our project
 
 First of all, create a new folder, and init it with your project path:
 
@@ -52,6 +55,54 @@ require (
 go 1.14
 ```
 
+### 2.2) Prepare GitHub repository
+
+For easy of use, we will use GitHub to store our extension with git, and we will use github actions to build the docker image of our extension. In this way, we can later deploy our extension with `kubectl` in our cluster. 
+
+Create a GitHub account if you don't have one yet, create a new repository and [create a Personal Access Token (PAT)](https://docs.github.com/en/free-pro-team@latest/github/authenticating-to-github/creating-a-personal-access-token) in GitHub with the [appropriate permissions](https://docs.github.com/en/free-pro-team@latest/packages/getting-started-with-github-container-registry/migrating-to-github-container-registry-for-docker-images#authenticating-with-the-container-registry) and add a secret in the repository, called `CR_PAT` with the PAT key. For sake of semplicity, we will assume that our repository is called `eirini-secscanner`.
+
+Clone the repository, and create a `.github` folder, inside create a new `workflows` folder with a yaml file `docker.yaml` with the following content:
+
+*.github/workflows/docker.yaml*: 
+```yaml
+name: Publish Docker image
+on:
+  push:
+jobs:
+  push_to_registry:
+    name: Push Docker image to GitHub Packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      -
+        name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.CR_PAT }}
+      -
+        name: Build and push
+        id: docker_build
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ghcr.io/mudler/eirini-secscanner:latest
+      -
+        name: Image digest
+        run: echo ${{ steps.docker_build.outputs.digest }}
+```
+
+The GitHub Action will build and push a fresh docker image to the GitHub container registry, that we can later on use it in our cluster to run our extension. 
+The Image should be accessible to a url similar to this: `ghcr.io/user/eirini-secscanner:latest`
+
 ## 3)  Extension logic
 
 Before jumping in creating our `main.go`, let's focus on our extension logic. EiriniX has support for different kind of extensions, which allows to interact with Eirini applications, or staging pods in different ways:
@@ -69,4 +120,6 @@ For our Security scanner (secscanner) makes sense to use a *MutatingWebhook*, we
 Since we want [trivy](https://github.com/aquasecurity/trivy#embed-in-dockerfile) to run as a first action, and check if the filesystem of our app is secure enough, we will have to run the InitContainer with the same image which is used for the Eirini app.
 
 So our extension will also have to retrieve the image of the Eirini app - and use that one to run the security scanner.
+
+### Anatomy of an Extension
 
