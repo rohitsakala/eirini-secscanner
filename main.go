@@ -28,9 +28,9 @@ func main() {
 		zaplog.Fatal("the EIRINI_NAMESPACE environment variable must be set")
 	}
 
-	webhookNsEnvVar := os.Getenv("WEBHOOK_NAMESPACE")
+	webhookNsEnvVar := os.Getenv("EXTENSION_NAMESPACE")
 	if webhookNsEnvVar == "" {
-		zaplog.Fatal("the WEBHOOK_NAMESPACE environment variable must be set")
+		zaplog.Fatal("the EXTENSION_NAMESPACE environment variable must be set")
 	}
 
 	portEnvVar := os.Getenv("PORT")
