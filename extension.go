@@ -21,10 +21,6 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 	if pod == nil {
 		return admission.Errored(http.StatusBadRequest, errors.New("No pod could be decoded from the request"))
 	}
-
-	//_, file, _, _ := runtime.Caller(0)
-	//	log := eiriniManager.GetLogger().Named(file)
-
 	podCopy := pod.DeepCopy()
 
 	for i := range podCopy.Spec.InitContainers {

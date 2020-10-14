@@ -3,7 +3,6 @@ package secscanner_test
 import (
 	"context"
 	"encoding/json"
-	"strings"
 
 	. "github.com/mudler/eirini-secscanner"
 
@@ -22,10 +21,6 @@ func jsonifyPatches(resp admission.Response) []string {
 		r = append(r, patch.Json())
 	}
 	return r
-}
-
-func decodePatches(resp admission.Response) string {
-	return strings.Join(jsonifyPatches(resp), "")
 }
 
 var _ = Describe("Eirini extension", func() {
