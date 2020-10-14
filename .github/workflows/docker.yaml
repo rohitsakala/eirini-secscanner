@@ -1,3 +1,4 @@
+# https://docs.github.com/en/free-pro-team@latest/actions/guides/publishing-docker-images#publishing-images-to-github-packages
 name: Publish Docker image
 on:
   push:
@@ -9,11 +10,10 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v2
       - name: Push to GitHub Packages
-        uses: docker/build-push-action@v1
+        uses: mr-smithers-excellent/docker-build-push@v4
         with:
+          image: eirini-secscanner/eirini-secscanner
+          registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          registry: docker.pkg.github.com
-          repository: mudler/eirinixlab/eirini-secscanner
-          tag_with_ref: true
+          password: ${{ secrets.GITHUB_TOKEN }} 
 
