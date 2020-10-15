@@ -1,4 +1,4 @@
-package secscanner
+package main
 
 import (
 	"context"
