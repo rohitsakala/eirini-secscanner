@@ -13,39 +13,69 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
+  name: eirini-secscanner-webhook
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  - mutatingwebhookconfigurations
+  verbs:
+  - create  
+  - delete
+  - update
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: eirini-secscanner-secrets
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - delete
+  - list
+  - update
+  - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
   name: eirini-secscanner
 rules:
 - apiGroups:
   - ""
   resources:
-  - pods
+  - namespaces
   verbs:
   - get
   - list
+  - update
   - watch
+
 - apiGroups:
   - ""
   resources:
-  - ingresses
-  - services
+  - events
   verbs:
-  - get
-  - list
-  - delete
   - create
-  - update
   - patch
+  - update
+
 - apiGroups:
-  - "extensions"
+  - ""
   resources:
-  - ingresses
+  - pods
   verbs:
+  - delete
   - get
   - list
-  - delete
-  - create
   - update
-  - patch
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -60,6 +90,48 @@ subjects:
 - kind: ServiceAccount
   name: eirini-secscanner
   namespace: eirini-secscanner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secrets
+  namespace: eirini-secscanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-secscanner-secrets
+subjects:
+- kind: ServiceAccount
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: webhook
+  namespace: eirini-secscanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-secscanner-webhook
+subjects:
+- kind: ServiceAccount
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+spec:
+  type: ClusterIP
+  selector:
+    name: eirini-secscanner
+  ports:
+  - protocol: TCP
+    name: https
+    port: 8080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -80,9 +152,13 @@ spec:
       containers:
         - name: eirini-secscanner
           imagePullPolicy: Always
-          image: "quay.io/mudler/eirinix-ingress"
+          image: "ghcr.io/mudler/eirini-secscanner:latest"
           env:
-            - name: NAMESPACE
+            - name: EIRINI_NAMESPACE
               value: "eirini"
-            - name: LABELS
-              value: '{ "eirinix-ingress": "true" }'
+            - name: EXTENSION_NAMESPACE
+              value: "eirini-secscanner"
+            - name: PORT
+              value: "8080"
+            - name: SERVICE_NAME
+              value: "eirini-secscanner"
