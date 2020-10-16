@@ -71,7 +71,7 @@ var _ = Describe("Eirini extension", func() {
 					Image:           "foo",
 					ImagePullPolicy: "Always",
 					Resources:       map[string]interface{}{},
-					Args:            []string{TrivyInject},
+					Args:            []string{"curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b tmp && tmp/trivy filesystem --severity '' --exit-code 1 --no-progress /"},
 					Command:         []string{"/bin/sh", "-c"},
 				}
 				patch := struct {
