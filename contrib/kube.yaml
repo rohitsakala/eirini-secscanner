@@ -162,3 +162,5 @@ spec:
               value: "8080"
             - name: SERVICE_NAME
               value: "eirini-secscanner"
+            - name: SEVERITY
+              value: "HIGH,CRITICAL"

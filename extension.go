@@ -44,11 +44,6 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		}
 	}
 
-	q, err := resource.ParseQuantity("1G")
-	if err != nil {
-		return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity"))
-	}
-
 	secscanner := v1.Container{
 		Name:            "secscanner",
 		Image:           image,
@@ -57,7 +52,12 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		ImagePullPolicy: v1.PullAlways,
 		Env:             []v1.EnvVar{},
 	}
+
 	if len(ext.Memory) > 0 {
+		q, err := resource.ParseQuantity(ext.Memory)
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity: "+ext.Memory))
+		}
 		secscanner.Resources = v1.ResourceRequirements{Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q}}
 	}
 
