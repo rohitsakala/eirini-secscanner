@@ -8,6 +8,7 @@ import (
 	eirinix "code.cloudfoundry.org/eirinix"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	resource "k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -40,6 +41,11 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		}
 	}
 
+	q, err := resource.ParseQuantity("1G")
+	if err != nil {
+		return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity"))
+	}
+
 	secscanner := v1.Container{
 		Name:            "secscanner",
 		Image:           image,
@@ -47,6 +53,7 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		Command:         []string{"/bin/sh", "-c"},
 		ImagePullPolicy: v1.PullAlways,
 		Env:             []v1.EnvVar{},
+		Resources:       v1.ResourceRequirements{Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q}},
 	}
 
 	podCopy.Spec.InitContainers = append(podCopy.Spec.InitContainers, secscanner)
