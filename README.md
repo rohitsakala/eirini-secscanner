@@ -128,7 +128,7 @@ the pod definition that we want to mutate, so our extension will start by defini
 
 
 ```golang
-package secscanner
+package main
 
 type Extension struct{}
 ```
@@ -190,6 +190,403 @@ We have added a bunch of things, let's go over it one by one:
 - ```return eiriniManager.PatchFromPod(req, podCopy)``` returns the diff patch from the request to the podCopy
 
 
-## Make the Docker image public
+## 4) write the main.go
+
+Let's now write a short `main.go` which just executes our extension:
+
+```golang
+
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+
+	eirinix "code.cloudfoundry.org/eirinix"
+	"go.uber.org/zap"
+)
+
+const operatorFingerprint = "eirini-secscanner"
+
+var appVersion string = ""
+
+func main() {
+
+	eiriniNsEnvVar := os.Getenv("EIRINI_NAMESPACE")
+	if eiriniNsEnvVar == "" {
+		zaplog.Fatal("the EIRINI_NAMESPACE environment variable must be set")
+	}
+
+	webhookNsEnvVar := os.Getenv("EXTENSION_NAMESPACE")
+	if webhookNsEnvVar == "" {
+		zaplog.Fatal("the EXTENSION_NAMESPACE environment variable must be set")
+	}
+
+	portEnvVar := os.Getenv("PORT")
+	if portEnvVar == "" {
+		zaplog.Fatal("the PORT environment variable must be set")
+	}
+	port, err := strconv.Atoi(portEnvVar)
+	if err != nil {
+		zaplog.Fatalw("could not convert port to integer", "error", err, "port", portEnvVar)
+	}
+
+	serviceNameEnvVar := os.Getenv("SERVICE_NAME")
+	if serviceNameEnvVar == "" {
+		zaplog.Fatal("the SERVICE_NAME environment variable must be set")
+	}
+
+	filter := true
+
+	ext := eirinix.NewManager(eirinix.ManagerOptions{
+		Namespace:           eiriniNsEnvVar,
+		Host:                "0.0.0.0",
+		Port:                int32(port),
+		FilterEiriniApps:    &filter,
+		OperatorFingerprint: operatorFingerprint,
+		ServiceName:         serviceNameEnvVar,
+		WebhookNamespace:    webhookNsEnvVar,
+	})
+
+	ext.AddExtension(&Extension{})
+
+	if err := ext.Start(); err != nil {
+		fmt.Println("error starting eirinix manager", "error", err)
+	}
+
+}
+
+```
+
+First we collect options from the environment. This will allow us to tweak easily from the kubernetes deployment the various fields:
+- We grab `EIRINI_NAMESPACE` from the environment, it's the namespace used by Eirini to push App
+- `EXTENSION_NAMESPACE` is the namespace used by our extension
+- `PORT` is the listening port where our extension is listening to
+- `SERVICE_NAME` is the Kubernetes service name reserved to our extension. We will need a Kubernetes service resource created before starting our extension. It will be used by Kubernetes to contact our extension while mutating Eirini apps.
+
+Mext we construct the EiriniX manager, which will run our extension under the hood, and will create all the necessary boilerplate resources to talk to Kubernetes:
+```golang
+
+filter := true
+
+	ext := eirinix.NewManager(eirinix.ManagerOptions{
+		Namespace:           eiriniNsEnvVar,
+		Host:                "0.0.0.0",
+		Port:                int32(port),
+		FilterEiriniApps:    &filter,
+		OperatorFingerprint: operatorFingerprint,
+		ServiceName:         serviceNameEnvVar,
+		WebhookNamespace:    webhookNsEnvVar,
+	})
+```
+
+Here we just map the settings that we collected in environment variables, that we hand over to EiriniX. The ```OperatorFingerprint```  and ```FilterEiriniApps``` are used to set a fingerprint for our runtime and for filtering eirini apps only respectively.
+
+## 5) Commit the code
+
+Time to try things out!
+
+Commmit and push the code done so far to github, a workflow will trigger automatically, which can be inspected in the "Actions" tab of the repository. 
+Now, we should have a docker image, and we are ready to start our extension!
+
+
+### Make the Docker image public
 
 After GH Action has been executed and the docker image of your extension has been pushed, change its permission setting to public in the [package settings page](https://docs.github.com/en/free-pro-team@latest/packages/managing-container-images-with-github-container-registry/configuring-access-control-and-visibility-for-container-images#configuring-visibility-of-container-images-for-your-personal-account)
+
+## 6) Kube apply, first cluster tests
+
+We need at this point to start our extension, so we will create a file which represent our deployment for kubernetes:
+
+```yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eirini-secscanner
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: eirini-secscanner-webhook
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  - mutatingwebhookconfigurations
+  verbs:
+  - create  
+  - delete
+  - update
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: eirini-secscanner-secrets
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - create
+  - delete
+  - list
+  - update
+  - watch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: eirini-secscanner
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: watch-eirini-1
+  namespace: eirini
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-secscanner
+subjects:
+- kind: ServiceAccount
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secrets
+  namespace: eirini-secscanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-secscanner-secrets
+subjects:
+- kind: ServiceAccount
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: webhook
+  namespace: eirini-secscanner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: eirini-secscanner-webhook
+subjects:
+- kind: ServiceAccount
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+spec:
+  type: ClusterIP
+  selector:
+    name: eirini-secscanner
+  ports:
+  - protocol: TCP
+    name: https
+    port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eirini-secscanner
+  namespace: eirini-secscanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: eirini-secscanner
+  template:
+    metadata:
+      labels:
+        name: eirini-secscanner
+    spec:
+      serviceAccountName: eirini-secscanner
+      containers:
+        - name: eirini-secscanner
+          imagePullPolicy: Always
+          image: "ghcr.io/mudler/eirini-secscanner:latest"
+          env:
+            - name: EIRINI_NAMESPACE
+              value: "eirini"
+            - name: EXTENSION_NAMESPACE
+              value: "eirini-secscanner"
+            - name: PORT
+              value: "8080"
+            - name: SERVICE_NAME
+              value: "eirini-secscanner"
+            - name: SEVERITY
+              value: "CRITICAL"
+```
+
+Mind to replace `"ghcr.io/[USER]/eirini-secscanner:latest"` with your image, and then apply the yaml with `kubectl`. Our component will be now on the `eirini-secscanner` namespace, intercepting Eirini Apps.
+
+## 7) Extension logic, part two.
+
+We have tried our extension, but doesn't do anything useful - yet. So let's implement what we was aheading for - a secscanner.
+
+This time,  we will inject a container, but the container will have the image of the running App, so we will try to scan the pod that we have intercepted, and we will try to find the container that Eirini created to start our application.
+
+
+```golang
+
+func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager, pod *corev1.Pod, req admission.Request) admission.Response {
+
+	if pod == nil {
+		return admission.Errored(http.StatusBadRequest, errors.New("No pod could be decoded from the request"))
+	}
+	podCopy := pod.DeepCopy()
+
+	var image string
+	for i := range podCopy.Spec.Containers {
+		c := &podCopy.Spec.Containers[i]
+		switch c.Name {
+		case "opi":
+			image = c.Image
+		}
+  }
+  ....
+```
+
+Now we are looping `podCopy` Containers, and we are finding for a container which is named after `opi` - that's by convention the container named by Eirini running your app. We will grab the image string and we store it to `image`.
+
+Knowing the correct image, now we can Inject our container:
+
+```golang
+
+
+	secscanner := v1.Container{
+		Name:            "secscanner",
+		Image:           image,
+		Args:            []string{`mkdir bin && curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b bin && bin/trivy filesystem --exit-code 1 --no-progress /`},
+		Command:         []string{"/bin/sh", "-c"},
+		ImagePullPolicy: v1.PullAlways,
+		Env:             []v1.EnvVar{},
+	}
+```
+
+As we would like also to be able to run our extension with replicas, in full HA mode, we will adapt our code to be idempotent, so it doesn't try to inject an init container each time. Before injecting the container, we can add:
+
+```golang
+
+
+	// Stop if a secscanner was already injected
+	for i := range podCopy.Spec.InitContainers {
+		c := &podCopy.Spec.InitContainers[i]
+		if c.Name == "secscanner" {
+			return eiriniManager.PatchFromPod(req, podCopy)
+		}
+	}
+
+
+```
+To return an empty patch , so we don't patch the pod twice (or more).
+
+Now our extension should look something like: 
+
+```golang
+
+func trivyInject(severity string) string {
+	return fmt.Sprintf("curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b tmp && tmp/trivy filesystem --severity '%s' --exit-code 1 --no-progress /", severity)
+}
+// Extension is the secscanner extension which injects a initcontainer which checks for vulnerability in the container image
+type Extension struct{}
+
+func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager, pod *corev1.Pod, req admission.Request) admission.Response {
+
+	if pod == nil {
+		return admission.Errored(http.StatusBadRequest, errors.New("No pod could be decoded from the request"))
+	}
+	podCopy := pod.DeepCopy()
+
+	// Stop if a secscanner was already injected
+	for i := range podCopy.Spec.InitContainers {
+		c := &podCopy.Spec.InitContainers[i]
+		if c.Name == "secscanner" {
+			return eiriniManager.PatchFromPod(req, podCopy)
+		}
+	}
+
+	var image string
+	for i := range podCopy.Spec.Containers {
+		c := &podCopy.Spec.Containers[i]
+		switch c.Name {
+		case "opi":
+			image = c.Image
+		}
+	}
+
+	secscanner := v1.Container{
+		Name:            "secscanner",
+		Image:           image,
+		Args:            []string{trivyInject("CRITICAL")},
+		Command:         []string{"/bin/sh", "-c"},
+		ImagePullPolicy: v1.PullAlways,
+		Env:             []v1.EnvVar{},
+	}
+
+	podCopy.Spec.InitContainers = append(podCopy.Spec.InitContainers, secscanner)
+
+	return eiriniManager.PatchFromPod(req, podCopy)
+}
+
+
+```
+
+We have just moved the bash commmand construction to its own function `trivyInject` so it can take a severity as an option.
+
+Let's commit the code and push it, to have a new image built by GitHub.
+
+Have a look at the complete source code, `extension.go` in this repository.
+
+Kill and delete the extension pod and push an application to see what happens
