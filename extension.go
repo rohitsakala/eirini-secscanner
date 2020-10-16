@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-const TrivyInject = `mkdir bin && curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b bin && bin/trivy filesystem --exit-code 1 --no-progress /`
+const TrivyInject = `curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b tmp && tmp/trivy filesystem --exit-code 1 --no-progress /`
 
 // Extension is the secscanner extension which injects a initcontainer which checks for vulnerability in the container image
 type Extension struct{}
@@ -23,6 +23,7 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 	}
 	podCopy := pod.DeepCopy()
 
+	// Stop if a secscanner was already injected
 	for i := range podCopy.Spec.InitContainers {
 		c := &podCopy.Spec.InitContainers[i]
 		if c.Name == "secscanner" {
