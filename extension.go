@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 
 	eirinix "code.cloudfoundry.org/eirinix"
@@ -12,10 +13,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-const TrivyInject = `curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b tmp && tmp/trivy filesystem --exit-code 1 --no-progress /`
+func trivyInject(severity string) string {
+	return fmt.Sprintf("curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b tmp && tmp/trivy filesystem --severity '%s' --exit-code 1 --no-progress /", severity)
+}
 
 // Extension is the secscanner extension which injects a initcontainer which checks for vulnerability in the container image
-type Extension struct{}
+type Extension struct{ Memory, Severity string }
 
 func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager, pod *corev1.Pod, req admission.Request) admission.Response {
 
@@ -49,11 +52,13 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 	secscanner := v1.Container{
 		Name:            "secscanner",
 		Image:           image,
-		Args:            []string{TrivyInject},
+		Args:            []string{trivyInject(ext.Severity)},
 		Command:         []string{"/bin/sh", "-c"},
 		ImagePullPolicy: v1.PullAlways,
 		Env:             []v1.EnvVar{},
-		Resources:       v1.ResourceRequirements{Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q}},
+	}
+	if len(ext.Memory) > 0 {
+		secscanner.Resources = v1.ResourceRequirements{Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q}}
 	}
 
 	podCopy.Spec.InitContainers = append(podCopy.Spec.InitContainers, secscanner)

@@ -46,6 +46,10 @@ func main() {
 	if serviceNameEnvVar == "" {
 		zaplog.Fatal("the SERVICE_NAME environment variable must be set")
 	}
+	severity := os.Getenv("SEVERITY")
+	if severity == "" {
+		severity = "CRITICAL"
+	}
 
 	filter := true
 
@@ -60,7 +64,7 @@ func main() {
 		WebhookNamespace:    webhookNsEnvVar,
 	})
 
-	ext.AddExtension(&Extension{})
+	ext.AddExtension(&Extension{Memory: os.Getenv("MEMORY"), Severity: severity})
 
 	if err := ext.Start(); err != nil {
 		zaplog.Fatalw("error starting eirinix manager", "error", err)
