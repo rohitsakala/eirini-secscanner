@@ -8,7 +8,6 @@ import (
 
 	eirinix "code.cloudfoundry.org/eirinix"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
@@ -44,13 +43,13 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		}
 	}
 
-	secscanner := v1.Container{
+	secscanner := corev1.Container{
 		Name:            "secscanner",
 		Image:           image,
 		Args:            []string{trivyInject(ext.Severity)},
 		Command:         []string{"/bin/sh", "-c"},
-		ImagePullPolicy: v1.PullAlways,
-		Env:             []v1.EnvVar{},
+		ImagePullPolicy: corev1.PullAlways,
+		Env:             []corev1.EnvVar{},
 	}
 
 	if len(ext.Memory) > 0 {
@@ -58,9 +57,9 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		if err != nil {
 			return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity: "+ext.Memory))
 		}
-		secscanner.Resources = v1.ResourceRequirements{
-			Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q},
-			Limits:   map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q},
+		secscanner.Resources = corev1.ResourceRequirements{
+			Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceMemory: q},
+			Limits:   map[corev1.ResourceName]resource.Quantity{corev1.ResourceMemory: q},
 		}
 	}
 
