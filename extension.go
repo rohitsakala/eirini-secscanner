@@ -58,7 +58,10 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		if err != nil {
 			return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity: "+ext.Memory))
 		}
-		secscanner.Resources = v1.ResourceRequirements{Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q}}
+		secscanner.Resources = v1.ResourceRequirements{
+			Requests: map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q},
+			Limits:   map[v1.ResourceName]resource.Quantity{v1.ResourceMemory: q},
+		}
 	}
 
 	podCopy.Spec.InitContainers = append(podCopy.Spec.InitContainers, secscanner)
