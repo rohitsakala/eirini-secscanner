@@ -19,6 +19,7 @@ func trivyInject(severity string) string {
 // Extension is the secscanner extension which injects a initcontainer which checks for vulnerability in the container image
 type Extension struct{ Memory, Severity string }
 
+// Handle takes a pod and inject a secscanner container if needed
 func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager, pod *corev1.Pod, req admission.Request) admission.Response {
 
 	if pod == nil {
