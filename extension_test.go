@@ -41,8 +41,8 @@ var _ = Describe("Eirini extension", func() {
 		request = admission.Request{AdmissionRequest: admissionv1beta1.AdmissionRequest{Object: runtime.RawExtension{Raw: raw}}}
 	})
 
-	Describe("eirini-dns-aliases", func() {
-		Context("when handling a Eirini runtime app", func() {
+	Describe("eirini-secscanner", func() {
+		Context("handling a Eirini runtime app", func() {
 			BeforeEach(func() {
 				pod = &corev1.Pod{
 					Spec: corev1.PodSpec{
@@ -56,8 +56,7 @@ var _ = Describe("Eirini extension", func() {
 				}
 			})
 
-			It("Does patch the dns policy", func() {
-
+			It("does add a secscanner InitContainer", func() {
 				patches := jsonifyPatches(extension.Handle(context.Background(), eiriniManager, pod, request))
 				container := struct {
 					Command         []string    `json:"command"`
