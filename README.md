@@ -15,6 +15,7 @@ This lab is targeted towards the audience who would like to use Cloud Foundry fo
 ## Learning Objectives
 
  - Build an Eirini extension with EiriniX
+ - Use Git and Github Actions to build the extension docker image
  - Deploy the extension to your kubernetes cluster
 
 ## Prerequisites
@@ -105,7 +106,7 @@ The Image should be accessible to a url similar to this: `ghcr.io/user/eirini-se
 
 ## 3)  Extension logic
 
-Before jumping in creating our `main.go`, let's focus on our extension logic. EiriniX has support for different kind of extensions, which allows to interact with Eirini applications, or staging pods in different ways:
+Before jumping in creating our `main.go`, let's focus on our extension logic. EiriniX does support different kind of extensions, which allows to interact with Eirini applications, or staging pods in different ways:
 
 - MutatingWebhooks -  by having an active component which patches Eirini apps before starting them
 - Watcher - a component that just watch and gets notified if new Eirini apps are pushed
@@ -129,6 +130,18 @@ the pod definition that we want to mutate, so our extension will start by defini
 
 ```golang
 package main
+
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+
+	eirinix "code.cloudfoundry.org/eirinix"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+)
 
 type Extension struct{}
 ```
@@ -167,7 +180,7 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 	}
 	podCopy := pod.DeepCopy()
 
-	secscanner := v1.Container{
+	secscanner := corev1.Container{
 		Name:            "secscanner",
 		Image:           "busybox",
 		Args:            []string{"echo 'fancy'"},
@@ -296,9 +309,15 @@ Now, we should have a docker image, and we are ready to start our extension!
 
 After GH Action has been executed and the docker image of your extension has been pushed, change its permission setting to public in the [package settings page](https://docs.github.com/en/free-pro-team@latest/packages/managing-container-images-with-github-container-registry/configuring-access-control-and-visibility-for-container-images#configuring-visibility-of-container-images-for-your-personal-account)
 
-## 6) Kube apply, first cluster tests
+## 6) Kubectl apply, first cluster tests
 
-We need at this point to start our extension, so we will create a file which represent our deployment for kubernetes:
+We need at this point to start our extension.
+
+In the Kubernetes deployment file, we are creating a `serviceAccount` that has permission to register `mutatingwebhooks` at cluster level and that can operate on secrets on the namespace where it belongs. We also give permissions over the target namespace (the Eirini one, and we assume it's `eirini`) to operate on `pods`, `events` and `namespace` resource.
+
+Finally we create a service which will be consumed by the extension.
+
+At the end should look more or less like the following:
 
 ```yaml
 ---
@@ -469,7 +488,7 @@ spec:
               value: "CRITICAL"
 ```
 
-Mind to replace `"ghcr.io/[USER]/eirini-secscanner:latest"` with your image, and then apply the yaml with `kubectl`. Our component will be now on the `eirini-secscanner` namespace, intercepting Eirini Apps.
+Notes: replace `"ghcr.io/[USER]/eirini-secscanner:latest"` with your image, and then apply the yaml with `kubectl`. Our component will be now on the `eirini-secscanner` namespace, intercepting Eirini Apps.
 
 ## 7) Extension logic, part two.
 
@@ -505,20 +524,37 @@ Knowing the correct image, now we can Inject our container:
 ```golang
 
 
-	secscanner := v1.Container{
+	secscanner := corev1.Container{
 		Name:            "secscanner",
 		Image:           image,
 		Args:            []string{`mkdir bin && curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b bin && bin/trivy filesystem --exit-code 1 --no-progress /`},
 		Command:         []string{"/bin/sh", "-c"},
-		ImagePullPolicy: v1.PullAlways,
-		Env:             []v1.EnvVar{},
+		ImagePullPolicy: corev1.PullAlways,
+		Env:             []corev1.EnvVar{},
 	}
 ```
 
-As we would like also to be able to run our extension with replicas, in full HA mode, we will adapt our code to be idempotent, so it doesn't try to inject an init container each time. Before injecting the container, we can add:
+We also have to take care of the resource used by our `InitContainer`. If no `requests/limits` are specified, Kubernetes will apply the same of the other container to ours, and this will cause our secscanner to get `OOMKilled` if someone pushes an app with a small memory limit set.
+
+We will then set a specific memory request in our container:
 
 ```golang
+  	q, err := resource.ParseQuantity("500M")
+		if err != nil {
+			return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity: "+ext.Memory))
+    }
+    ...
+		secscanner.Resources = corev1.ResourceRequirements{
+			Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceMemory: q},
+			Limits:   map[corev1.ResourceName]resource.Quantity{corev1.ResourceMemory: q},
+		}
+```
 
+mind also to add `resource "k8s.io/apimachinery/pkg/api/resource"` to the imports on top of your main.
+
+As we would like also to be able to run our extension with replicas, in full HA mode, we will adapt our code to be idempotent, so it doesn't try to inject an init container each time. Before injecting the container, we can add a `guard` like so:
+
+```golang
 
 	// Stop if a secscanner was already injected
 	for i := range podCopy.Spec.InitContainers {
@@ -530,7 +566,7 @@ As we would like also to be able to run our extension with replicas, in full HA 
 
 
 ```
-To return an empty patch , so we don't patch the pod twice (or more).
+to return an empty patch so we patch the pod only once.
 
 Now our extension should look something like: 
 
@@ -564,15 +600,24 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 		case "opi":
 			image = c.Image
 		}
-	}
+  }
+  
+  q, err := resource.ParseQuantity("500M")
+	if err != nil {
+		return admission.Errored(http.StatusBadRequest, errors.New("Failed parsing quantity: "+ext.Memory))
+   }
 
-	secscanner := v1.Container{
+	secscanner := corev1.Container{
 		Name:            "secscanner",
 		Image:           image,
 		Args:            []string{trivyInject("CRITICAL")},
 		Command:         []string{"/bin/sh", "-c"},
-		ImagePullPolicy: v1.PullAlways,
-		Env:             []v1.EnvVar{},
+		ImagePullPolicy: corev1.PullAlways,
+    Env:             []corev1.EnvVar{},
+    Resources: corev1.ResourceRequirements{
+			Requests: map[corev1.ResourceName]resource.Quantity{corev1.ResourceMemory: q},
+			Limits:   map[corev1.ResourceName]resource.Quantity{corev1.ResourceMemory: q},
+		},
 	}
 
 	podCopy.Spec.InitContainers = append(podCopy.Spec.InitContainers, secscanner)
@@ -585,8 +630,10 @@ func (ext *Extension) Handle(ctx context.Context, eiriniManager eirinix.Manager,
 
 We have just moved the bash commmand construction to its own function `trivyInject` so it can take a severity as an option.
 
-Let's commit the code and push it, to have a new image built by GitHub.
+Let's commit the code and push it, to have a new image built by GitHub. Wait for Github Action to complete and delete the extension pod. Now push an application, and watch the eirini namespace with `watch kubectl get pods -n eirini` to see what happens!
 
-Have a look at the complete source code, `extension.go` in this repository.
+We should see first a staging eirini pod, that afterwards gets deleted to make space to the real Eirini app. If we inspect it closely with `kubectl describe pod -n eirini PODNAME`, we will see it had injected a `secscanner` container.
 
-Kill and delete the extension pod and push an application to see what happens
+## Notes
+
+The full code used in this lab is available [here](https://github.com/mudler/eirini-secscanner) and if you want to try that extension directly you can: `kubectl apply -f https://raw.githubusercontent.com/mudler/eirini-secscanner/main/contrib/kube.yaml`
