@@ -163,4 +163,6 @@ spec:
             - name: SERVICE_NAME
               value: "eirini-secscanner"
             - name: SEVERITY
-              value: "HIGH,CRITICAL"
+              value: "CRITICAL" # Try to set it to "HIGH,CRITICAL"
+            - name: MEMORY
+              value: "500M"
